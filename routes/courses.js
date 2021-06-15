@@ -240,7 +240,7 @@ router.put('/:courseId', jsonParser, (req, res) => {
                 return;
             };
 
-            // desc: check if original creators still exist in updated version, if not alter createdCourses
+            // desc: check if original creators still exist in updated version, if not alter their createdCourses
             course.creators.forEach(creatorId => {
 
                 if (error) {
@@ -281,7 +281,7 @@ router.put('/:courseId', jsonParser, (req, res) => {
 
             let courseIdField = course._id; // may be potentially needed (type == ObjectId)
 
-            // desc: check if new creators have been added and alter creators's createdCourses
+            // check if new creators have been added and alter creators's createdCourses
             reqCourse.creators.forEach(creatorId => { // creatorId is a string
                 User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
 
@@ -296,7 +296,7 @@ router.put('/:courseId', jsonParser, (req, res) => {
 
                     if (stringfiedCourseIds.indexOf(courseId) == -1) { // here we are comparing stringified ids
                         // course not in creator's createdCourses -> add it
-                        creator.createdCourses.push(courseIdField); // here i add object id 
+                        creator.createdCourses.push(courseIdField); // here i add object id (check in models/User.js)
 
                         // update user
                         User.findOneAndUpdate({ _id: { $eq: creatorId } }, creator, { runValidators: true, new: true, useFindAndModify: false }, (error, updatedCreator) => {
@@ -324,7 +324,6 @@ router.put('/:courseId', jsonParser, (req, res) => {
                     return;
                 };
 
-                console.log('im after 2 forEachs');
                 console.log('updated course:    ');
                 console.log(course);
 
@@ -364,7 +363,7 @@ router.delete('/:courseId', (req, res) => {
         console.log('deleted course:    ');
         console.log(course);
 
-        // update createdCourses for all creators of this course
+        // update createdCourses for all creators of this course (delete it from createdCourses)
         course.creators.forEach((creatorId, index, arr) => {
             User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
 

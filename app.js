@@ -1,5 +1,4 @@
 const express = require('express');
-const expressValidator = require('express-validator');
 const app = express();
 const port = 3000;
 
@@ -28,13 +27,9 @@ const courses = require('./routes/courses');
 // route: /users
 const users = require('./routes/users');
 
-// route: /search
-const search = require('./routes/search');
-
 // MIDDLEWARE
 app.use('/api/courses', courses);
 app.use('/api/users', users);
-app.use('/api/search', search);
 
 app.get('/', (req, res) => {
     res.send('hello world');

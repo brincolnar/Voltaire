@@ -7,7 +7,7 @@ const bcrypt = require('bcrypt');
 const User = require('../models/User');
 
 // create application/json parser
-const jsonParser = bodyParser.json()
+const jsonParser = bodyParser.json();
 
 const router = express.Router();
 router.use(expressValidator());
@@ -61,19 +61,8 @@ router.post('/', jsonParser, async (req, res) => {
 
     console.log("req.body");
     console.log(req.body);
-    const firstName = req.body.firstName;
-    const lastName = req.body.lastName;
-    const username = req.body.username;
     const isCreator = req.body.isCreator;
-    const rating = req.body.rating;
-    const following = req.body.following;
-    const followers = req.body.followers;
-    const chargeRate = req.body.chargeRate;
-    const createdCourses = req.body.createdCourses;
-    const addedCourses = req.body.addedCourses;
-    const email = req.body.email;
     const password = req.body.password;
-    const password2 = req.body.password2; // confirm
 
     req.checkBody('firstName', 'firstName is required').notEmpty();
     req.checkBody('lastName', 'lastName is required').notEmpty();
@@ -81,7 +70,7 @@ router.post('/', jsonParser, async (req, res) => {
     req.checkBody('isCreator', 'isCreator is required').notEmpty();
     req.checkBody('email', 'Passwords do not match').isEmail();
     req.checkBody('password', 'Passwords do not match').notEmpty();
-    req.checkBody('password2', 'Passwords do not match').equals(req.body.password);
+    req.checkBody('password2', 'Passwords do not match').equals(password);
 
     // only check if user is creator
     if(isCreator) {
@@ -96,13 +85,7 @@ router.post('/', jsonParser, async (req, res) => {
 
         errors.forEach(error => {
             console.log(JSON.stringify(error));
-        })
-
-        /*
-        res.render('register', {
-        errors: errors
-      });
-      */
+        });
     } else {
 
         const salt = await bcrypt.genSalt(10);
@@ -128,14 +111,19 @@ router.post('/', jsonParser, async (req, res) => {
 });
 
 // route: POST /api/users/login
-// desc: login
+// desc: user login
 router.post('/login', jsonParser, (req, res) => {
     const password = req.body.password;
     const username = req.body.username;
-    let match = false;
 
     // get hash for username from DB
     User.findOne({ username: username }, (error, result) => {
+
+        if (error) {
+            console.log(error);
+            res.status(500).json({ error: 'Something went wrong...' });
+            return;
+        }
 
         // compare hashes
         if(result != null) {
