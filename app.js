@@ -1,6 +1,9 @@
 const express = require('express');
+
 const app = express();
 const port = 3000;
+
+debugger;
 
 // DATABASE
 const mongoose = require('mongoose');
@@ -27,9 +30,13 @@ const courses = require('./routes/courses');
 // route: /users
 const users = require('./routes/users');
 
+// route: /auth
+const auth = require('./services/auth');
+
 // MIDDLEWARE
 app.use('/api/courses', courses);
 app.use('/api/users', users);
+app.use('/auth', auth.router);
 
 app.get('/', (req, res) => {
     res.send('hello world');

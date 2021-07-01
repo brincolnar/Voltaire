@@ -2,6 +2,12 @@ const express = require('express');
 const expressValidator =  require('express-validator');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
+const auth = require('../services/auth');
+const refreshTokensStorage = require('../services/refreshTokens');
+const jwt = require("jsonwebtoken");
+
+// for secrets
+require('dotenv').config()
 
 // DATABASE
 const User = require('../models/User');
@@ -14,7 +20,16 @@ router.use(expressValidator());
 
 // route: GET /api/users
 // desc: gets all users
-router.get('/', (req, res) => {
+router.get('/', auth.authenticateJWT, (req, res) => {
+
+    console.log('req.tokenPayload:  ' + JSON.stringify(req.tokenPayload)); // courtesy of authenticateJWT middleware
+
+    const isAdmin = (req.tokenPayload.role == 'admin') ? true : false;
+
+    if(!isAdmin) {
+        res.status(401).json({ message: 'Only admin can list all users' });
+        return;
+    }
 
     // Access database and return users
     // no keyword specified, return all courses
@@ -55,7 +70,7 @@ router.get('/:userId', (req, res) => {
     })
 });
 
-// route: POST /api/users
+// route: POST /api/users/register
 // desc: register user
 router.post('/', jsonParser, async (req, res) => {
 
@@ -71,6 +86,7 @@ router.post('/', jsonParser, async (req, res) => {
     req.checkBody('email', 'Passwords do not match').isEmail();
     req.checkBody('password', 'Passwords do not match').notEmpty();
     req.checkBody('password2', 'Passwords do not match').equals(password);
+    req.checkBody('role', 'Non-member roles are assigned manually').equals('member');
 
     // only check if user is creator
     if(isCreator) {
@@ -86,6 +102,8 @@ router.post('/', jsonParser, async (req, res) => {
         errors.forEach(error => {
             console.log(JSON.stringify(error));
         });
+
+        // res.json with the right http status
     } else {
 
         const salt = await bcrypt.genSalt(10);
@@ -102,7 +120,8 @@ router.post('/', jsonParser, async (req, res) => {
             createdCourses: req.body.createdCourses,
             addedCourses: req.body.addedCourses,
             email: req.body.email,
-            password: await bcrypt.hash(req.body.password, salt) // saves hashed password
+            password: await bcrypt.hash(req.body.password, salt), // saves hashed password
+            role: req.body.role
         });
 
         newUser.save();
@@ -110,14 +129,18 @@ router.post('/', jsonParser, async (req, res) => {
     }
 });
 
+
 // route: POST /api/users/login
 // desc: user login
 router.post('/login', jsonParser, (req, res) => {
     const password = req.body.password;
     const username = req.body.username;
 
+    const accessTokenSecret = process.env.ACCESS_TOKEN_SECRET;
+    const refreshTokenSecret = process.env.REFRESH_TOKEN_SECRET;
+
     // get hash for username from DB
-    User.findOne({ username: username }, (error, result) => {
+    User.findOne({ username: username }, (error, user) => {
 
         if (error) {
             console.log(error);
@@ -126,14 +149,30 @@ router.post('/login', jsonParser, (req, res) => {
         }
 
         // compare hashes
-        if(result != null) {
+        if(user != null) {
 
-            bcrypt.compare(password, result.password, (error, result) => {
+            bcrypt.compare(password, user.password, (error, result) => {
+
+                if (error) {
+                    console.log(error);
+                    res.status(500).json({ error: 'Something went wrong...' });
+                    return;
+                }
+
                 if(result == true) {
                     match = true;
-                    res.status(200).json({ message: "Login succesful..." }); 
+
+                    // upon succesful login, generate an JWT acess token, and a refresh token for generating new tokens
+                    const accessToken = jwt.sign({ username: user.username,  role: user.role }, accessTokenSecret, { expiresIn: '20m' });
+                    const refreshToken = jwt.sign({ username: user.username,  role: user.role }, refreshTokenSecret);
+
+                    // save it later for refreshing user's session
+                    refreshTokensStorage.refreshTokens.push(refreshToken);
+
+                    // send both back
+                    res.status(200).json({ accessToken, refreshToken }); 
                 } else {
-                    res.status(200).json({ message: "Login failed. Wrong password..." });  
+                    res.status(401).json({ message: "Login failed. Wrong password..." });  
                 }
             });
 
@@ -143,5 +182,20 @@ router.post('/login', jsonParser, (req, res) => {
 
     });
 });
+
+// route: POST /api/users/logout
+// desc: user logout, destroys user's refreshToken
+router.post('/logout', jsonParser, (req, res) => {
+
+    const token = req.body.token;
+
+    // delete token from storage
+    refreshTokensStorage.refreshTokens = refreshTokensStorage.refreshTokens.filter(t => t !== token);
+
+    res.status(200).json({
+        message: 'Logout succesful'
+    });
+})
+
 
 module.exports = router;

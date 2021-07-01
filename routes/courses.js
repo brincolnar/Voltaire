@@ -1,6 +1,7 @@
-const express = require('express')
+const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
+const auth = require('../services/auth');
 
 // create application/json parser
 const jsonParser = bodyParser.json()
@@ -11,6 +12,8 @@ const router = express.Router();
 const Course = require('../models/Course');
 const User = require('../models/User');
 const { update } = require('../models/User');
+
+// ROUTER
 
 // route: GET /api/courses or /api/courses?keyword=value
 // desc: gets all courses, if provided query params then we search by course title and by course author
@@ -156,92 +159,142 @@ router.get('/:courseId', (req, res) => {
 
 // route: POST /api/courses
 // desc: creates new course
-router.post('/', jsonParser, (req, res) => {
+// auth: check if username in the token is the creator of the course
+router.post('/', [jsonParser, auth.authenticateJWT], (req, res) => {
     const course = req.body;
 
-    // see CUSTOM VALIDATORS defined in Course schema for validation methods
-    // Create new course and save
-    const newCourse = new Course(course);
+    // authentication
+    const username = req.tokenPayload.username;
+    console.log('username:  '); // courtesy of authenticateJWT middleware
+    console.log(username);
 
-    newCourse.save((error, document) => {
-        if (error) {
-            console.log(error);
-            res.status(500).json({ error: `${error}` });
-            return;
-        }
+    console.log('course.creators: ');
+    console.log(course.creators);
 
-        console.log('saving course to database...');
-        console.log(document);
+    // check if course creator matches the username from the token
+    if (course.creators.length == 1) { // only 1 creator is allowed at first
+        User.findOne({ username: username }, (error, user) => {
 
-        // document is the saved course in the database
-        document.creators.forEach((creatorId, index, arr) => {
+            if (error) {
+                console.log(error);
+                res.status(500).json({ error: 'Something went wrong...' });
+                return;
+            }
 
-            User.findById(creatorId, (error, user) => {
+            // get users id, check if its in course.creators
+            console.log('found user:    ');
+            console.log(user);
 
-                if (error) {
-                    console.log(error);
-                    res.status(500).json({ error: 'Something went wrong...' });
-                    return;
-                };
+            const userId = user._id.toString();
+            console.log('userId:  ');
+            console.log(userId);
 
-                console.log('found user: ');
-                console.log(user);
+            // check id match
+            if (userId == course.creators[0]) {
+                console.log('Ids match!');
+                console.log('Saving course to the database...');
 
-                user.createdCourses.push(document._id);
+                // save course
+                // see CUSTOM VALIDATORS defined in Course schema for validation methods
+                // Create new course and save
 
-                // update user, return updated doc
-                User.findOneAndUpdate({ _id: { $eq: user._id } }, user, { new: true }, (error, updatedUser) => {
+                const newCourse = new Course(course);
+
+                newCourse.save((error, document) => {
+                    if (error) {
+                        console.log(error);
+                        res.status(500).json({ error: `${error}` });
+                        return;
+                    }
+
+                    console.log('saving course to database...');
+                    console.log(document);
+
+
                     if (error) {
                         console.log(error);
                         res.status(500).json({ error: 'Something went wrong...' });
                         return;
                     };
 
-                    console.log("updated user:  ");
-                    console.log(updatedUser);
+                    console.log('found user: ');
+                    console.log(user);
 
-                    if (index == arr.length - 1) { // last iteration
+                    // update users created courses
+                    user.createdCourses.push(document._id);
+
+                    // update user, return updated doc
+                    User.findOneAndUpdate({ _id: { $eq: user._id } }, user, { new: true }, (error, updatedUser) => {
+                        if (error) {
+                            console.log(error);
+                            res.status(500).json({ error: 'Something went wrong...' });
+                            return;
+                        };
+
+                        console.log("updated user:  ");
+                        console.log(updatedUser);
+
                         res.json({ message: 'New course created...' }); // as there always must be a creator provided this will get executed
-                    }
+                    });
                 });
-            });
+            } else {
+                console.log('Ids dont match!');
+                res.status(401).json({ message: 'Forbidden.' });
+            }
         });
-    });
+    } else {
+        res.status(400).json({ message: 'Only 1 creator can create the course' });
+    }
 });
 
 // route: PUT /api/courses/:courseId
 // desc: updates course
-router.put('/:courseId', jsonParser, (req, res) => {
+// auth: check if username in the token is among course creators 
+router.put('/:courseId', [jsonParser, auth.authenticateJWT], (req, res) => {
 
     const reqCourse = req.body;
     const courseId = req.params.courseId;
 
-    // check for validation of course first
-    const newCourse = new Course(reqCourse);
+    // authentication
+    const username = req.tokenPayload.username;
+    console.log('username:  '); // courtesy of authenticateJWT middleware
+    console.log(username);
 
-    newCourse.validate(error => {
+    User.findOne({ username: username }, (error, user) => {
+
         if (error) {
-            console.log(`error: ${error}`);
-
-            res.status(400).json({ message: `${error}` });
+            console.log(error);
+            res.status(500).json({ error: 'Something went wrong...' });
             return;
-        } 
+        }
 
-        // validation needs to happen first (maybe change to promises)
-        uponValidCourse();
-    });
+        const userId = user._id.toString();
+        console.log('userId: ');
+        console.log(userId);
 
-    const uponValidCourse = () => {
-        Course.findOne({ _id: { $eq: courseId } }, (error, course) => {
+        console.log(reqCourse.creators);
+        // if tokens username is among course creators
+        if (reqCourse.creators.indexOf(userId) == -1) {
+            return res.status(401).json({ message: 'Forbidden.' });
+        }
 
+        // check for validation of course first
+        const newCourse = new Course(reqCourse);
+
+        newCourse.validate(error => {
             if (error) {
-                console.log(error);
-                res.status(500).json({ error: 'Something went wrong...' });
-                return;
-            };
+                console.log(`error: ${error}`);
 
-            // desc: check if original creators still exist in updated version, if not alter their createdCourses
-            course.creators.forEach(creatorId => {
+                res.status(400).json({ message: `${error}` });
+                return;
+            }
+
+            // validation needs to happen first (maybe change to promises)
+            uponValidCourse();
+        });
+
+        const uponValidCourse = () => {
+            Course.findOne({ _id: { $eq: courseId } }, (error, course) => {
 
                 if (error) {
                     console.log(error);
@@ -249,11 +302,50 @@ router.put('/:courseId', jsonParser, (req, res) => {
                     return;
                 };
 
-                // in updated course?
-                if (reqCourse.creators.indexOf(creatorId.toString()) == -1) {
+                // desc: check if original creators still exist in updated version, if not alter their createdCourses
+                course.creators.forEach(creatorId => {
 
-                    // not in updated version --> remove course from creator's createdCourses
-                    User.findById(creatorId, (error, creator) => {
+                    if (error) {
+                        console.log(error);
+                        res.status(500).json({ error: 'Something went wrong...' });
+                        return;
+                    };
+
+                    // in updated course?
+                    if (reqCourse.creators.indexOf(creatorId.toString()) == -1) {
+
+                        // not in updated version --> remove course from creator's createdCourses
+                        User.findById(creatorId, (error, creator) => {
+
+                            if (error) {
+                                console.log(error);
+                                res.status(500).json({ error: 'Something went wrong...' });
+                                return;
+                            };
+
+                            const createdCourses = creator.createdCourses.filter(course => course._id != courseId);
+                            creator.createdCourses = createdCourses;
+
+                            // update creator
+                            User.findOneAndUpdate({ _id: { $eq: creator._id } }, creator, { runValidators: true, new: true, useFindAndModify: false }, (error, updatedCreator) => {
+                                if (error) {
+                                    console.log(error);
+                                    res.status(500).json({ error: 'Something went wrong...' });
+                                    return;
+                                };
+
+                                console.log('updated creator:   ');
+                                console.log(updatedCreator);
+                            })
+                        });
+                    }
+                });
+
+                let courseIdField = course._id; // may be potentially needed (type == ObjectId)
+
+                // check if new creators have been added and alter creators's createdCourses
+                reqCourse.creators.forEach(creatorId => { // creatorId is a string
+                    User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
 
                         if (error) {
                             console.log(error);
@@ -261,92 +353,69 @@ router.put('/:courseId', jsonParser, (req, res) => {
                             return;
                         };
 
-                        const createdCourses = creator.createdCourses.filter(course => course._id != courseId);
-                        creator.createdCourses = createdCourses;
+                        let stringfiedCourseIds =
+                            creator.createdCourses.map(courseId => courseId._id.toString());
 
-                        // update creator
-                        User.findOneAndUpdate({ _id: { $eq: creator._id } }, creator, { runValidators: true, new: true, useFindAndModify: false }, (error, updatedCreator) => {
-                            if (error) {
-                                console.log(error);
-                                res.status(500).json({ error: 'Something went wrong...' });
-                                return;
-                            };
+                        if (stringfiedCourseIds.indexOf(courseId) == -1) { // here we are comparing stringified ids
+                            // course not in creator's createdCourses -> add it
+                            creator.createdCourses.push(courseIdField); // here i add object id (check in models/User.js)
 
-                            console.log('updated creator:   ');
-                            console.log(updatedCreator);
-                        })
+                            // update user
+                            User.findOneAndUpdate({ _id: { $eq: creatorId } }, creator, { runValidators: true, new: true, useFindAndModify: false }, (error, updatedCreator) => {
+                                if (error) {
+                                    console.log(error);
+                                    res.status(500).json({ error: 'Something went wrong...' });
+                                    return;
+                                };
+
+                                console.log('updated creator(after adding course in his createdCourses): ');
+                                console.log(updatedCreator);
+                            });
+                        }
                     });
-                }
-            });
+                });
 
-            let courseIdField = course._id; // may be potentially needed (type == ObjectId)
-
-            // check if new creators have been added and alter creators's createdCourses
-            reqCourse.creators.forEach(creatorId => { // creatorId is a string
-                User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
+                // try to find document with courseId and update it with reqCourse 
+                // {new: true} --> callback returns the updated document
+                // executed after users get updated correctly
+                Course.findOneAndUpdate({ _id: { $eq: courseId } }, reqCourse, { runValidators: true, new: true, useFindAndModify: false }, (error, course) => {
 
                     if (error) {
                         console.log(error);
-                        res.status(500).json({ error: 'Something went wrong...' });
+                        res.status(500).json({ error: `${error}` });
                         return;
                     };
 
-                    let stringfiedCourseIds =
-                        creator.createdCourses.map(courseId => courseId._id.toString());
+                    console.log('updated course:    ');
+                    console.log(course);
 
-                    if (stringfiedCourseIds.indexOf(courseId) == -1) { // here we are comparing stringified ids
-                        // course not in creator's createdCourses -> add it
-                        creator.createdCourses.push(courseIdField); // here i add object id (check in models/User.js)
-
-                        // update user
-                        User.findOneAndUpdate({ _id: { $eq: creatorId } }, creator, { runValidators: true, new: true, useFindAndModify: false }, (error, updatedCreator) => {
-                            if (error) {
-                                console.log(error);
-                                res.status(500).json({ error: 'Something went wrong...' });
-                                return;
-                            };
-
-                            console.log('updated creator(after adding course in his createdCourses): ');
-                            console.log(updatedCreator);
-                        });
+                    if (course == null) {
+                        console.log(`Course ${courseId} doesn't exist...`);
+                        res.json({ message: `Course ${courseId} doesn't exist...` });
+                    } else {
+                        console.log(`Updating course ${courseId}...`);
+                        res.json(course);
                     }
                 });
             });
-
-            // try to find document with courseId and update it with reqCourse 
-            // {new: true} --> callback returns the updated document
-            // executed after users get updated correctly
-            Course.findOneAndUpdate({ _id: { $eq: courseId } }, reqCourse, { runValidators: true, new: true, useFindAndModify: false }, (error, course) => {
-
-                if (error) {
-                    console.log(error);
-                    res.status(500).json({ error: `${error}` });
-                    return;
-                };
-
-                console.log('updated course:    ');
-                console.log(course);
-
-                if (course == null) {
-                    console.log(`Course ${courseId} doesn't exist...`);
-                    res.json({ message: `Course ${courseId} doesn't exist...` });
-                } else {
-                    console.log(`Updating course ${courseId}...`);
-                    res.json(course);
-                }
-            });
-        });
-    }
+        }
+    });
 
 })
 
 // router: DELETE /api/courses/:courseId
 // desc: deletes courseId course
-router.delete('/:courseId', (req, res) => {
+// auth: check if username in the token is among course creators 
+router.delete('/:courseId', auth.authenticateJWT, (req, res) => {
 
     const courseId = req.params.courseId;
 
-    Course.findOneAndDelete({ _id: { $eq: courseId } }, (error, course) => {
+    // authentication
+    const username = req.tokenPayload.username;
+    console.log('username:  '); // courtesy of authenticateJWT middleware
+    console.log(username);
+
+    User.findOne({ username: username }, (error, user) => {
 
         if (error) {
             console.log(error);
@@ -354,21 +423,22 @@ router.delete('/:courseId', (req, res) => {
             return;
         };
 
-        if (course == null) {
-            console.log(`Course ${courseId} doesn't exist...`);
-            res.status(400).json({ message: `Course ${courseId} doesn't exist...` });
-            return;
-        }
+        const userId = user._id.toString();
 
-        console.log('deleted course:    ');
-        console.log(course);
+        Course.findById(courseId, (error, course) => {
 
-        // update createdCourses for all creators of this course (delete it from createdCourses)
-        course.creators.forEach((creatorId, index, arr) => {
-            User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
+            if (error) {
+                console.log(error);
+                res.status(500).json({ error: 'Something went wrong...' });
+                return;
+            };
 
-                console.log('creator:   ');
-                console.log(creator);
+            if (course.creators.indexOf(userId) == -1) {
+                return res.status(401).json({ message: 'Forbidden.' });
+            }
+
+            // delete course, update creators
+            Course.findOneAndDelete({ _id: { $eq: courseId } }, (error, course) => {
 
                 if (error) {
                     console.log(error);
@@ -376,29 +446,52 @@ router.delete('/:courseId', (req, res) => {
                     return;
                 };
 
-                // remove course
-                const updatedCourses = creator.createdCourses.filter(createdCourseId => createdCourseId._id != courseId);
+                if (course == null) {
+                    console.log(`Course ${courseId} doesn't exist...`);
+                    res.status(400).json({ message: `Course ${courseId} doesn't exist...` });
+                    return;
+                }
 
-                creator.createdCourses = updatedCourses;
+                console.log('deleted course:    ');
+                console.log(course);
 
-                // update creator
-                User.findOneAndUpdate({ _id: { $eq: creatorId } }, creator, { new: true }, (error, updatedUser) => {
-                    if (error) {
-                        console.log(error);
-                        res.status(500).json({ error: 'Something went wrong...' });
-                        return;
-                    };
+                // update createdCourses for all creators of this course (delete it from createdCourses)
+                course.creators.forEach((creatorId, index, arr) => {
+                    User.findOne({ _id: { $eq: creatorId } }, (error, creator) => {
 
-                    console.log("updated user:  ");
-                    console.log(updatedUser);
+                        console.log('creator:   ');
+                        console.log(creator);
 
-                    if (index == arr.length - 1) { // last iteration
-                        res.json({ message: 'Course has been removed...' }); // as there always must be a creator provided this will get executed
-                    }
+                        if (error) {
+                            console.log(error);
+                            res.status(500).json({ error: 'Something went wrong...' });
+                            return;
+                        };
+
+                        // remove course
+                        const updatedCourses = creator.createdCourses.filter(createdCourseId => createdCourseId._id != courseId);
+
+                        creator.createdCourses = updatedCourses;
+
+                        // update creator
+                        User.findOneAndUpdate({ _id: { $eq: creatorId } }, creator, { new: true }, (error, updatedUser) => {
+                            if (error) {
+                                console.log(error);
+                                res.status(500).json({ error: 'Something went wrong...' });
+                                return;
+                            };
+
+                            console.log("updated user:  ");
+                            console.log(updatedUser);
+
+                            if (index == arr.length - 1) { // last iteration
+                                res.json({ message: 'Course has been removed...' }); // as there always must be a creator provided this will get executed
+                            }
+                        });
+                    });
                 });
             });
         });
-
     });
 });
 

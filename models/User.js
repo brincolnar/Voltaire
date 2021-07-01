@@ -27,7 +27,17 @@ const UserSchema = new Schema({
     },
     password: { 
         type: String
-    }
+    },
+    role: { 
+        type: String,
+        required: true,
+        validate: {
+            validator: (v) => {
+                return ['member', 'admin'].includes(v); 
+            },
+            message: 'Must be member/admin...' 
+        }
+    }   
 });
 
 // export model and schema
