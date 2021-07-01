@@ -9,8 +9,7 @@ did:
 - used MongoDB and mongoose for database & handling it 
 - register and login functionality
 - search functionality for 1 model
+- authentication (protecting routes)
 
 to be done:
-
-- authentication (protecting routes)
-- front-end consuming API
+- front-end consuming API (set up in a different project)
